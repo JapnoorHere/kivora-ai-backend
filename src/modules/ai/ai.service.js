@@ -2,19 +2,10 @@ import { GoogleGenAI } from '@google/genai';
 import { config } from '../../config/env.config.js';
 import { internalServer } from '../../errors/index.js';
 import { logError } from '../../utils/logger.js';
+import { MESSAGES, ERROR_CODES } from '../../constants/index.js';
 
-// Initialize the Google Gen AI client
 const ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
 
-/**
- * Generate a recipe based on ingredients and optional constraints.
- * @param {Object} params
- * @param {string[]} params.ingredients - List of available ingredients
- * @param {string} [params.cuisine] - Type of cuisine (e.g., Italian, Indian)
- * @param {number} [params.maxTime] - Maximum preparation + cooking time in minutes
- * @param {string[]} [params.dietaryRestrictions] - Dietary restrictions (e.g., vegan, gluten-free)
- * @returns {Promise<Object>} The generated recipe object
- */
 export const generateRecipe = async ({ ingredients, cuisine, maxTime, dietaryRestrictions }) => {
   try {
     const prompt = `
@@ -30,10 +21,10 @@ You MUST respond with a single JSON object matching the following structure:
 {
   "title": "Name of the recipe",
   "description": "A brief, appetizing 1-2 sentence description of the dish",
-  "prepTime": 15, // number representing minutes
-  "cookTime": 20, // number representing minutes
-  "servings": 2, // number of servings
-  "difficulty": "Easy", // "Easy", "Medium", or "Hard"
+  "prepTime": 15,
+  "cookTime": 20,
+  "servings": 2,
+  "difficulty": "Easy",
   "ingredients": [
     { "name": "Ingredient name", "amount": "Quantity/measurement (e.g. 200g, 1 tbsp)" }
   ],
@@ -42,10 +33,10 @@ You MUST respond with a single JSON object matching the following structure:
     "Step 2 instruction"
   ],
   "nutritionalInfo": {
-    "calories": 350, // number
-    "protein": "25g", // string with unit
-    "carbs": "40g", // string with unit
-    "fat": "10g" // string with unit
+    "calories": 350,
+    "protein": "25g",
+    "carbs": "40g",
+    "fat": "10g"
   }
 }
 `;
@@ -58,16 +49,14 @@ You MUST respond with a single JSON object matching the following structure:
       },
     });
 
-    const responseText = typeof response.text === 'function' ? response.text() : response.text;
+    const responseText = response.text;
     if (!responseText) {
-      throw internalServer('Empty response received from AI model');
+      throw internalServer(MESSAGES.RECIPE.AI_EMPTY_RESPONSE, ERROR_CODES.RECIPE_AI_EMPTY_RESPONSE);
     }
 
-    // Parse the JSON output from the model
-    const recipeData = JSON.parse(responseText);
-    return recipeData;
+    return JSON.parse(responseText);
   } catch (error) {
     logError('Gemini API Error', error);
-    throw internalServer(`Failed to generate recipe from AI: ${error.message}`);
+    throw internalServer(MESSAGES.RECIPE.AI_FAILED(error.message), ERROR_CODES.RECIPE_AI_FAILED);
   }
 };

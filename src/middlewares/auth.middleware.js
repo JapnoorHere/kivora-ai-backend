@@ -2,36 +2,27 @@ import { User } from '../modules/user/user.model.js';
 import { verifyToken } from '../utils/token.js';
 import { unauthorized } from '../errors/index.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import { MESSAGES, ERROR_CODES } from '../constants/index.js';
 
-/**
- * Express middleware to enforce JWT authentication on routes.
- * Inspects "Authorization: Bearer <token>" header, resolves the user,
- * and attaches the Mongoose user document to req.user.
- */
 export const protect = asyncHandler(async (req, res, next) => {
-  // 1. Get token from HttpOnly cookies
   const token = req.cookies?.token;
 
-  // 2. Validate existence
   if (!token) {
-    throw unauthorized('Authentication session is missing or expired. Please login again.');
+    throw unauthorized(MESSAGES.AUTH.SESSION_MISSING, ERROR_CODES.AUTH_SESSION_MISSING);
   }
 
   let decoded;
   try {
-    // 4. Verify token signature and expiration
     decoded = verifyToken(token);
   } catch (error) {
-    throw unauthorized('Authentication token is expired or invalid. Access denied.');
+    throw unauthorized(MESSAGES.AUTH.TOKEN_INVALID, ERROR_CODES.AUTH_TOKEN_INVALID);
   }
 
-  // 5. Query user in database
-  const user = await User.findById(decoded.id).select('-password'); // Exclude password from request context
+  const user = await User.findById(decoded.id).select('-password');
   if (!user) {
-    throw unauthorized('The account associated with this token no longer exists.');
+    throw unauthorized(MESSAGES.AUTH.ACCOUNT_DELETED, ERROR_CODES.AUTH_ACCOUNT_DELETED);
   }
 
-  // 6. Attach resolved user context to request
   req.user = user;
   next();
 });

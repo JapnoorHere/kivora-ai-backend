@@ -1,40 +1,26 @@
 import { generateRecipe } from '../ai/ai.service.js';
 import { Recipe } from './recipe.model.js';
 import { notFound } from '../../errors/index.js';
+import { MESSAGES, ERROR_CODES } from '../../constants/index.js';
+import { serialize, serializeMany } from '../../utils/serialize.js';
 
-/**
- * Generates a recipe using AI and saves it to the database.
- * @param {Object} params - Generation parameters
- * @returns {Promise<Object>} The saved recipe document
- */
-export const createAILedRecipe = async (params) => {
-  // Call AI service to generate structured recipe details
+export const createAILedRecipe = async (params, userId) => {
   const generatedData = await generateRecipe(params);
-
-  // Save the recipe to MongoDB
-  const newRecipe = new Recipe(generatedData);
-  const savedRecipe = await newRecipe.save();
-
-  return savedRecipe;
+  const recipe = await Recipe.create({ ...generatedData, createdBy: userId });
+  return serialize(recipe.toObject());
 };
 
-/**
- * Retrieves all saved recipes, sorted by latest created first.
- * @returns {Promise<Array>} List of recipes
- */
-export const fetchAllRecipes = async () => {
-  return await Recipe.find().sort({ createdAt: -1 });
+export const fetchAllRecipes = async (userId) => {
+  const recipes = await Recipe.find({ createdBy: userId })
+    .sort({ createdAt: -1 })
+    .lean();
+  return serializeMany(recipes);
 };
 
-/**
- * Retrieves a single recipe by its unique database ID.
- * @param {string} id - Mongoose document ID
- * @returns {Promise<Object>} The recipe document
- */
-export const fetchRecipeById = async (id) => {
-  const recipe = await Recipe.findById(id);
+export const fetchRecipeById = async (id, userId) => {
+  const recipe = await Recipe.findOne({ _id: id, createdBy: userId }).lean();
   if (!recipe) {
-    throw notFound(`Recipe with ID "${id}" was not found`);
+    throw notFound(MESSAGES.RECIPE.NOT_FOUND(id), ERROR_CODES.RECIPE_NOT_FOUND);
   }
-  return recipe;
+  return serialize(recipe);
 };

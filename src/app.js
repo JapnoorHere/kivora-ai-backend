@@ -1,42 +1,45 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import mongoSanitize from 'express-mongo-sanitize';
 import apiRouter from './routes/index.js';
 import { errorHandler } from './errors/error.handler.js';
 import { notFound } from './errors/index.js';
 import { logHttp } from './utils/logger.js';
+import { MESSAGES, ERROR_CODES } from './constants/index.js';
+import { config } from './config/env.config.js';
+import { attachRequestContext } from './middlewares/request-context.middleware.js';
 
 const app = express();
 
-// Global Middlewares
+app.use(helmet());
 app.use(cors({
-  origin: ['http://localhost:4200', 'http://127.0.0.1:4200'],
+  origin: config.cors.origins,
   credentials: true,
 }));
 app.use(cookieParser());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+// Strip MongoDB operators ($, .) from req.body, req.params, req.query
+app.use(mongoSanitize());
+app.use(attachRequestContext);
 
-// Simple request logging middleware
 app.use((req, res, next) => {
   logHttp(`${req.method} ${req.path}`);
   next();
 });
 
-// Base health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', message: 'Kivora AI Backend is running smoothly' });
+  res.status(200).json({ status: 'OK', message: MESSAGES.APP.HEALTH_OK });
 });
 
-// Register central master router
 app.use('/api/v1', apiRouter);
 
-// Catch-all 404 route handler
 app.use((req, res, next) => {
-  next(notFound(`Endpoint not found: ${req.method} ${req.path}`));
+  next(notFound(MESSAGES.APP.ENDPOINT_NOT_FOUND(req.method, req.path), ERROR_CODES.ENDPOINT_NOT_FOUND));
 });
 
-// Global error handler (must be the last middleware)
 app.use(errorHandler);
 
 export default app;

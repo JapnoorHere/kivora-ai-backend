@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(which node *)",
+      "Read(//c/Users/Japnoor/AppData/Roaming/fnm/node-versions//**)",
+      "Bash(FNM_NODE_DIST_MIRROR=https://nodejs.org/dist FNM_VERSION_FILE_STRATEGY=local FNM_DIR=/c/Users/Japnoor/AppData/Roaming/fnm PATH=/c/Users/Japnoor/AppData/Roaming/fnm/node-versions/v20.20.2/installation/bin:__TRACKED_VAR__ npm install helmet express-mongo-sanitize --prefix D:/Projects/kivora-ai-backend)"
+    ]
+  }
+}

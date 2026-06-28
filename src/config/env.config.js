@@ -1,10 +1,8 @@
 import dotenv from 'dotenv';
 import Joi from 'joi';
 
-// Load environment variables from .env file
 dotenv.config();
 
-// Define Joi schema for validating environment variables
 const envSchema = Joi.object({
   PORT: Joi.number().default(5000),
   NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
@@ -12,9 +10,9 @@ const envSchema = Joi.object({
   GEMINI_API_KEY: Joi.string().required().description('Google Gemini API key'),
   JWT_SECRET: Joi.string().required().description('JWT signing secret key'),
   JWT_EXPIRES_IN: Joi.string().default('1d').description('JWT token lifetime'),
+  ALLOWED_ORIGINS: Joi.string().default('http://localhost:4200,http://127.0.0.1:4200').description('Comma-separated list of allowed CORS origins'),
 }).unknown().required();
 
-// Validate variables
 const { value: envVars, error } = envSchema.validate(process.env);
 
 if (error) {
@@ -33,5 +31,8 @@ export const config = {
   jwt: {
     secret: envVars.JWT_SECRET,
     expiresIn: envVars.JWT_EXPIRES_IN,
+  },
+  cors: {
+    origins: envVars.ALLOWED_ORIGINS.split(',').map((o) => o.trim()),
   },
 };

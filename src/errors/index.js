@@ -1,8 +1,8 @@
-export { createError } from './custom-error.js';
 export {
   badRequest,
   notFound,
   unauthorized,
   forbidden,
+  conflict,
   internalServer,
 } from './api-errors.js';
