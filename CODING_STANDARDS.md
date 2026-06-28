@@ -178,7 +178,7 @@ Applied in `app.js` in this order:
 1. `helmet()` — sets secure HTTP headers (CSP, HSTS, X-Frame-Options, etc.)
 2. `cors({ origin: config.cors.origins })` — allowlist from `ALLOWED_ORIGINS` env var
 3. `express.json({ limit: '10kb' })` — hard cap on request body size
-4. `mongoSanitize()` — strips MongoDB operators (`$`, `.`) from req.body/params/query
+4. `mongoSanitize.sanitize()` — strips MongoDB operators (`$`, `.`) from req.body and req.params (`req.query` is a getter-only in Express 5 and cannot be replaced)
 5. `attachRequestContext` — assigns correlation ID to every request
 
 ---

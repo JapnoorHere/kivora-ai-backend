@@ -21,8 +21,12 @@ app.use(cors({
 app.use(cookieParser());
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
-// Strip MongoDB operators ($, .) from req.body, req.params, req.query
-app.use(mongoSanitize());
+// Strip MongoDB operators ($, .) from body and params — req.query is a getter in Express 5 so we skip it
+app.use((req, res, next) => {
+  if (req.body) req.body = mongoSanitize.sanitize(req.body);
+  if (req.params) req.params = mongoSanitize.sanitize(req.params);
+  next();
+});
 app.use(attachRequestContext);
 
 app.use((req, res, next) => {
