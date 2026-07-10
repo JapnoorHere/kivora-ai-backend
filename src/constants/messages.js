@@ -10,6 +10,11 @@ export const ERROR_CODES = {
   RECIPE_NOT_FOUND: 'RECIPE_NOT_FOUND',
   RECIPE_AI_EMPTY_RESPONSE: 'RECIPE_AI_EMPTY_RESPONSE',
   RECIPE_AI_FAILED: 'RECIPE_AI_FAILED',
+  RECIPE_AI_QUOTA_EXCEEDED: 'RECIPE_AI_QUOTA_EXCEEDED',
+  RECIPE_INVALID_DISH: 'RECIPE_INVALID_DISH',
+  RECIPE_DIET_MISMATCH: 'RECIPE_DIET_MISMATCH',
+  RECIPE_DIET_MISMATCH_MODIFICATION: 'RECIPE_DIET_MISMATCH_MODIFICATION',
+  RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
 };
 
 export const MESSAGES = {
@@ -25,16 +30,28 @@ export const MESSAGES = {
   },
   RECIPE: {
     GENERATED: 'Recipe generated and saved successfully',
+    MODIFIED: 'Recipe updated and saved successfully',
     FETCHED_ALL: 'Recipes retrieved successfully',
     FETCHED_ONE: 'Recipe retrieved successfully',
     NOT_FOUND: (id) => `Recipe with ID "${id}" was not found`,
-    AI_EMPTY_RESPONSE: 'Empty response received from AI model',
-    AI_FAILED: (msg) => `Failed to generate recipe from AI: ${msg}`,
+    // Kept generic on purpose — never interpolate the raw upstream (Gemini) error
+    // message here, it can leak internal details straight to the user's toast.
+    // Full details always go to logError() server-side instead.
+    AI_EMPTY_RESPONSE: 'We couldn\'t generate your recipe right now. Please try again in a moment.',
+    AI_FAILED: 'We couldn\'t generate your recipe right now. Please try again in a moment.',
+    AI_QUOTA_EXCEEDED: 'Our recipe engine is temporarily at capacity. Please try again shortly.',
+    INVALID_DISH: 'That doesn\'t look like a real dish. Try a specific recipe name, like "Butter Chicken" or "Margherita Pizza".',
+    DIET_MISMATCH: 'The AI could not generate a recipe that honors your dietary preference. Please try again.',
+    DIET_MISMATCH_MODIFICATION: 'That change conflicts with this recipe\'s dietary preference. Please adjust your request.',
+  },
+  FEEDBACK: {
+    SUBMITTED: 'Feedback submitted successfully',
   },
   APP: {
     HEALTH_OK: 'Kivora AI Backend is running smoothly',
     ENDPOINT_NOT_FOUND: (method, path) => `Endpoint not found: ${method} ${path}`,
     VALIDATION_FAILED: 'Validation failed',
     INVALID_OBJECT_ID: 'Invalid resource ID format',
+    RATE_LIMIT_EXCEEDED: 'Too many requests. Please try again later.',
   },
 };

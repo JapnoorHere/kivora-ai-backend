@@ -4,12 +4,22 @@ import { asyncHandler } from '../../utils/async-handler.js';
 import { HTTP_STATUS, MESSAGES } from '../../constants/index.js';
 
 export const handleGenerateRecipe = asyncHandler(async (req, res) => {
-  const { ingredients, cuisine, maxTime, dietaryRestrictions } = req.body;
+  const { dishName, cuisine, dietaryPreference, servings, exclusions, language } = req.body;
   const recipe = await recipeService.createAILedRecipe(
-    { ingredients, cuisine, maxTime, dietaryRestrictions },
+    { dishName, cuisine, dietaryPreference, servings, exclusions, language },
     req.user._id,
   );
   return sendSuccess(res, MESSAGES.RECIPE.GENERATED, recipe, HTTP_STATUS.CREATED);
+});
+
+export const handleModifyRecipe = asyncHandler(async (req, res) => {
+  const { modificationText, targetLanguage } = req.body;
+  const recipe = await recipeService.modifyRecipe(
+    req.params.id,
+    { modificationText, targetLanguage },
+    req.user._id,
+  );
+  return sendSuccess(res, MESSAGES.RECIPE.MODIFIED, recipe, HTTP_STATUS.CREATED);
 });
 
 export const handleGetAllRecipes = asyncHandler(async (req, res) => {

@@ -9,6 +9,7 @@ export const HTTP_STATUS = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   UNPROCESSABLE_ENTITY: 422,
+  TOO_MANY_REQUESTS: 429,
   INTERNAL_SERVER_ERROR: 500,
 };
 
@@ -20,5 +21,6 @@ export const HTTP_MESSAGES = {
   [HTTP_STATUS.FORBIDDEN]: 'Forbidden Action',
   [HTTP_STATUS.NOT_FOUND]: 'Resource Not Found',
   [HTTP_STATUS.CONFLICT]: 'Conflict Occurred',
+  [HTTP_STATUS.TOO_MANY_REQUESTS]: 'Too Many Requests',
   [HTTP_STATUS.INTERNAL_SERVER_ERROR]: 'Internal Server Error',
 };

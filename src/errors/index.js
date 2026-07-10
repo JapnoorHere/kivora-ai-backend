@@ -4,5 +4,6 @@ export {
   unauthorized,
   forbidden,
   conflict,
+  tooManyRequests,
   internalServer,
 } from './api-errors.js';

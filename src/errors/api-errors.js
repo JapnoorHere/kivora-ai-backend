@@ -21,6 +21,10 @@ export const conflict = (message = 'Conflict', code = null) => {
   return createError(message, HTTP_STATUS.CONFLICT, null, code);
 };
 
+export const tooManyRequests = (message = 'Too Many Requests', code = null) => {
+  return createError(message, HTTP_STATUS.TOO_MANY_REQUESTS, null, code);
+};
+
 export const internalServer = (message = 'Internal Server Error', code = null) => {
   return createError(message, HTTP_STATUS.INTERNAL_SERVER_ERROR, null, code);
 };

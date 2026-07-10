@@ -4,7 +4,25 @@
       "Bash(npm install *)",
       "Bash(which node *)",
       "Read(//c/Users/Japnoor/AppData/Roaming/fnm/node-versions//**)",
-      "Bash(FNM_NODE_DIST_MIRROR=https://nodejs.org/dist FNM_VERSION_FILE_STRATEGY=local FNM_DIR=/c/Users/Japnoor/AppData/Roaming/fnm PATH=/c/Users/Japnoor/AppData/Roaming/fnm/node-versions/v20.20.2/installation/bin:__TRACKED_VAR__ npm install helmet express-mongo-sanitize --prefix D:/Projects/kivora-ai-backend)"
+      "Bash(FNM_NODE_DIST_MIRROR=https://nodejs.org/dist FNM_VERSION_FILE_STRATEGY=local FNM_DIR=/c/Users/Japnoor/AppData/Roaming/fnm PATH=/c/Users/Japnoor/AppData/Roaming/fnm/node-versions/v20.20.2/installation/bin:__TRACKED_VAR__ npm install helmet express-mongo-sanitize --prefix D:/Projects/kivora-ai-backend)",
+      "Read(//c/Program Files/**)",
+      "PowerShell(winget --version)",
+      "PowerShell(winget install MongoDB.Server --accept-package-agreements --accept-source-agreements)",
+      "PowerShell(Start-Service -Name \"MongoDB\")",
+      "PowerShell(Get-Service -Name \"MongoDB\")",
+      "PowerShell(Get-CimInstance Win32_Service -Filter \"Name='MongoDB'\")",
+      "Read(//c/Program Files/MongoDB/Server/8.3/bin/**)",
+      "Read(//c/Program Files/MongoDB/Server/8.3/data/**)",
+      "PowerShell(& \"C:\\\\Program Files\\\\MongoDB\\\\Server\\\\8.3\\\\bin\\\\mongod.exe\" --config \"C:\\\\Program Files\\\\MongoDB\\\\Server\\\\8.3\\\\bin\\\\mongod.cfg\")",
+      "Read(//c/Program Files/MongoDB/Server/8.3/log/**)",
+      "Bash(\"/c/Program Files/MongoDB/Server/8.3/bin/mongod.exe\" --dbpath \"C:/Program Files/MongoDB/Server/8.3/data\" --port 27017)",
+      "Bash(echo \"EXIT:$?\")",
+      "Read(//tmp/**)",
+      "Bash(ls -la \"/c/Program Files/MongoDB/Server/8.3/bin/\" | head -20)",
+      "Read(//c/Program Files/MongoDB/Server/8.3/bin//**)",
+      "Bash(./mongod.exe --version)",
+      "PowerShell(& \"C:\\\\Program Files\\\\MongoDB\\\\Server\\\\8.3\\\\bin\\\\mongod.exe\" --version; Write-Host \"EXIT:$LASTEXITCODE\")",
+      "Bash(powershell -Command \"winget install Microsoft.VCRedist.2015+.x64 --accept-package-agreements --accept-source-agreements\")"
     ]
   }
 }
