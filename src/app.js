@@ -10,8 +10,15 @@ import { logHttp } from './utils/logger.js';
 import { MESSAGES, ERROR_CODES } from './constants/index.js';
 import { config } from './config/env.config.js';
 import { attachRequestContext } from './middlewares/request-context.middleware.js';
+import { verifyOrigin } from './middlewares/csrf.middleware.js';
 
 const app = express();
+
+// Behind a single reverse proxy in production, so req.ip must come from the first
+// X-Forwarded-For hop — otherwise every client shares one rate-limit bucket.
+if (config.env === 'production') {
+  app.set('trust proxy', 1);
+}
 
 app.use(helmet());
 app.use(cors({
@@ -19,8 +26,10 @@ app.use(cors({
   credentials: true,
 }));
 app.use(cookieParser());
+app.use(verifyOrigin);
+// JSON only. An urlencoded parser would also make cross-site <form> POSTs parseable,
+// which is exactly the CSRF shape cookie auth is vulnerable to.
 app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 // Strip MongoDB operators ($, .) from body and params — req.query is a getter in Express 5 so we skip it
 app.use((req, res, next) => {
   if (req.body) req.body = mongoSanitize.sanitize(req.body);

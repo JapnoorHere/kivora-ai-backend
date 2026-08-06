@@ -99,9 +99,15 @@ JWT is stored in an HttpOnly cookie (`token`) — never returned in the response
 router.use(protect);  // applies to all routes below
 ```
 
-The `protect` middleware (`src/middlewares/auth.middleware.js`) verifies the token and attaches the full user document (password excluded) to `req.user`.
+The `protect` middleware (`src/middlewares/auth.middleware.js`) verifies the token, rejects revoked sessions, and attaches the full user document (password excluded) to `req.user`.
 
-Cookie options: `httpOnly: true`, `secure: true` in production, `sameSite: 'none'` in production / `'lax'` in development.
+Cookie options come from `buildAuthCookieOptions(token)` in `src/utils/cookie.util.js` — never hand-roll them at a call site. `httpOnly: true`, `secure: true` in production, `sameSite: 'none'` in production / `'lax'` in development, and `expires` pinned to the token's own `exp` claim so cookie and token always die together.
+
+Because the cookie is HttpOnly, the browser cannot inspect its own session — `GET /auth/me` (behind `protect`) is the only way a client can learn whether it is still signed in. Clients must never infer auth state from local storage.
+
+Every token carries a `jti`. Logout writes it to the `RevokedToken` denylist (`src/modules/auth/auth.model.js`), which self-expires via a TTL index on `expiresAt`, so signing out kills that session immediately without touching the user's other devices.
+
+Pre-auth routes are IP rate limited (`loginLimiter`, `signupLimiter`); authenticated cost-bearing routes are user-keyed (`aiGenerationLimiter`).
 
 ---
 
@@ -177,9 +183,12 @@ Applied in `app.js` in this order:
 
 1. `helmet()` — sets secure HTTP headers (CSP, HSTS, X-Frame-Options, etc.)
 2. `cors({ origin: config.cors.origins })` — allowlist from `ALLOWED_ORIGINS` env var
-3. `express.json({ limit: '10kb' })` — hard cap on request body size
-4. `mongoSanitize.sanitize()` — strips MongoDB operators (`$`, `.`) from req.body and req.params (`req.query` is a getter-only in Express 5 and cannot be replaced)
-5. `attachRequestContext` — assigns correlation ID to every request
+3. `verifyOrigin` — CSRF guard: rejects non-safe methods whose `Origin` is outside the allowlist. CORS alone does not cover this, since a cross-site `<form>` POST is a "simple" request that arrives before any preflight
+4. `express.json({ limit: '10kb' })` — hard cap on request body size. **JSON only, deliberately** — adding an urlencoded parser would re-open the cross-site form-POST path that `verifyOrigin` exists to close
+5. `mongoSanitize.sanitize()` — strips MongoDB operators (`$`, `.`) from req.body and req.params (`req.query` is a getter-only in Express 5 and cannot be replaced)
+6. `attachRequestContext` — assigns correlation ID to every request
+
+`app.set('trust proxy', 1)` in production so IP-keyed rate limits see the real client address rather than the reverse proxy's.
 
 ---
 

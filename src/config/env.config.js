@@ -11,7 +11,7 @@ const envSchema = Joi.object({
   GROQ_API_KEY: Joi.string().allow('').optional().description('Groq API key — optional system fallback'),
   ENCRYPTION_KEY: Joi.string().min(16).required().description('Symmetric secret used to encrypt user-supplied AI provider API keys at rest'),
   FREE_DAILY_LIMIT: Joi.number().integer().min(0).default(5).description('Recipe generations per day for users without their own API key'),
-  JWT_SECRET: Joi.string().required().description('JWT signing secret key'),
+  JWT_SECRET: Joi.string().min(32).required().description('JWT signing secret key'),
   JWT_EXPIRES_IN: Joi.string().default('1d').description('JWT token lifetime'),
   ALLOWED_ORIGINS: Joi.string().default('http://localhost:4200,http://127.0.0.1:4200').description('Comma-separated list of allowed CORS origins'),
 }).unknown().required();
