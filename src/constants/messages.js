@@ -14,7 +14,10 @@ export const ERROR_CODES = {
   RECIPE_INVALID_DISH: 'RECIPE_INVALID_DISH',
   RECIPE_DIET_MISMATCH: 'RECIPE_DIET_MISMATCH',
   RECIPE_DIET_MISMATCH_MODIFICATION: 'RECIPE_DIET_MISMATCH_MODIFICATION',
+  RECIPE_FREE_LIMIT_REACHED: 'RECIPE_FREE_LIMIT_REACHED',
   RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
+  SETTINGS_INVALID_API_KEY: 'SETTINGS_INVALID_API_KEY',
+  SETTINGS_PROVIDER_NOT_CONNECTED: 'SETTINGS_PROVIDER_NOT_CONNECTED',
 };
 
 export const MESSAGES = {
@@ -43,9 +46,26 @@ export const MESSAGES = {
     INVALID_DISH: 'That doesn\'t look like a real dish. Try a specific recipe name, like "Butter Chicken" or "Margherita Pizza".',
     DIET_MISMATCH: 'The AI could not generate a recipe that honors your dietary preference. Please try again.',
     DIET_MISMATCH_MODIFICATION: 'That change conflicts with this recipe\'s dietary preference. Please adjust your request.',
+    FREE_LIMIT_REACHED: (limit) => `You've used all ${limit} free recipes today. Add your own API key in Settings for unlimited recipes, or come back tomorrow.`,
   },
   FEEDBACK: {
     SUBMITTED: 'Feedback submitted successfully',
+  },
+  SETTINGS: {
+    FETCHED: 'AI settings retrieved successfully',
+    KEY_SAVED: 'API key connected successfully',
+    KEY_REMOVED: 'API key removed successfully',
+    PREFERRED_UPDATED: 'Active AI provider updated',
+    INVALID_API_KEY: (provider) => `That ${provider === 'gemini' ? 'Gemini' : 'Groq'} API key could not be verified. Double-check it and try again.`,
+    PROVIDER_NOT_CONNECTED: (provider) => `You haven't connected a ${provider === 'gemini' ? 'Gemini' : 'Groq'} key yet.`,
+  },
+  LOGS: {
+    FETCHED_ERRORS: 'Error history retrieved successfully',
+    FETCHED_AI: 'AI interaction history retrieved successfully',
+  },
+  USER: {
+    PREFERENCES_FETCHED: 'Preferences retrieved successfully',
+    PREFERENCES_SAVED: 'Preferences saved successfully',
   },
   APP: {
     HEALTH_OK: 'Kivora AI Backend is running smoothly',

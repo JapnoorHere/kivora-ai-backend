@@ -1,6 +1,7 @@
 import { config } from '../config/env.config.js';
 import { HTTP_STATUS } from '../constants/index.js';
 import { logError } from '../utils/logger.js';
+import { recordErrorLog } from '../modules/logs/logs.service.js';
 
 export const errorHandler = (err, req, res, next) => {
   let statusCode = err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
@@ -9,6 +10,7 @@ export const errorHandler = (err, req, res, next) => {
   let code = err.code || null;
 
   logError(`API Error on ${req.method} ${req.path} (status: ${statusCode})`, err);
+  recordErrorLog(err, req);
 
   if (!err.isOperational && config.env === 'production') {
     statusCode = HTTP_STATUS.INTERNAL_SERVER_ERROR;

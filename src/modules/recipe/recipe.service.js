@@ -1,4 +1,5 @@
 import { generateRecipe, generateModifiedRecipe } from '../ai/ai.service.js';
+import { resolveAiContext } from '../settings/settings.service.js';
 import { Recipe } from './recipe.model.js';
 import { badRequest, notFound } from '../../errors/index.js';
 import { MESSAGES, ERROR_CODES } from '../../constants/index.js';
@@ -16,7 +17,8 @@ const textConflictsWithDiet = (text, dietaryPreference) => {
 };
 
 export const createAILedRecipe = async (params, userId) => {
-  const generatedData = await generateRecipe(params);
+  const aiContext = await resolveAiContext(userId);
+  const generatedData = await generateRecipe(params, aiContext);
   const { isValidDish, matchesDietaryPreference, ...recipeFields } = generatedData;
 
   if (!isValidDish) {
@@ -55,7 +57,8 @@ export const modifyRecipe = async (id, { modificationText, targetLanguage }, use
     throw badRequest(MESSAGES.RECIPE.DIET_MISMATCH_MODIFICATION, null, ERROR_CODES.RECIPE_DIET_MISMATCH_MODIFICATION);
   }
 
-  const generatedData = await generateModifiedRecipe({ originalRecipe, modificationText, targetLanguage });
+  const aiContext = await resolveAiContext(userId);
+  const generatedData = await generateModifiedRecipe({ originalRecipe, modificationText, targetLanguage }, aiContext);
   const recipe = await Recipe.create({
     ...generatedData,
     createdBy: userId,

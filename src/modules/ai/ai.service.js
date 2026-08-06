@@ -4,19 +4,24 @@ import { config } from '../../config/env.config.js';
 import { internalServer, tooManyRequests } from '../../errors/index.js';
 import { logError } from '../../utils/logger.js';
 import { MESSAGES, ERROR_CODES } from '../../constants/index.js';
+import { recordAiInteraction } from '../logs/logs.service.js';
+import { getRequestId } from '../../utils/request-context.js';
 
-const ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const isQuotaExceededError = (error) => {
+  if (error?.status === 429) return true;
   const text = String(error?.message || '');
   return text.includes('RESOURCE_EXHAUSTED') || text.includes('"code":429') || /quota/i.test(text);
 };
 
-// Never surface `error.message` to the client here — it's the raw upstream (Gemini)
+// Never surface `error.message` to the client here — it's the raw upstream (Gemini/Groq)
 // error text and can contain internal details. Log it, throw a generic message instead.
 const throwSanitizedAiError = (error) => {
   if (error.isOperational) throw error;
-  logError('Gemini API Error', error);
+  logError('AI provider error', error);
   if (isQuotaExceededError(error)) {
     throw tooManyRequests(MESSAGES.RECIPE.AI_QUOTA_EXCEEDED, ERROR_CODES.RECIPE_AI_QUOTA_EXCEEDED);
   }
@@ -94,6 +99,34 @@ const MODIFY_RESPONSE_SCHEMA = {
   required: RECIPE_CONTENT_REQUIRED,
 };
 
+// Groq has no equivalent of Gemini's responseSchema constraint, so the exact shape
+// is spelled out in the prompt instead and enforced afterwards by Joi below.
+const RECIPE_CONTENT_SHAPE = `  "title": string,
+  "description": string,
+  "prepTime": number (minutes),
+  "cookTime": number (minutes),
+  "servings": number,
+  "difficulty": "Easy" | "Medium" | "Hard",
+  "ingredients": [{ "name": string, "amount": string }],
+  "instructions": [{ "stepNumber": number, "instruction": string, "timeRequired": string }],
+  "nutritionalInfo": { "calories": number, "protein": string, "carbs": string, "fat": string }`;
+
+const JSON_SHAPE_INSTRUCTIONS = `
+Respond with ONLY a single valid JSON object (no markdown fences, no extra text) with exactly this shape:
+{
+  "isValidDish": boolean,
+  "matchesDietaryPreference": boolean,
+${RECIPE_CONTENT_SHAPE}
+}
+`;
+
+const JSON_SHAPE_INSTRUCTIONS_MODIFY = `
+Respond with ONLY a single valid JSON object (no markdown fences, no extra text) with exactly this shape:
+{
+${RECIPE_CONTENT_SHAPE}
+}
+`;
+
 // Defense in depth beyond responseSchema — catches truncated/malformed responses before they hit Mongo
 const recipeContentJoiSchema = Joi.object({
   title: Joi.string().required(),
@@ -116,9 +149,10 @@ const recipeContentJoiSchema = Joi.object({
   }).optional(),
 }).unknown(true);
 
-const callGemini = async (prompt, responseSchema) => {
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
+const callGemini = async (prompt, responseSchema, apiKey) => {
+  const client = new GoogleGenAI({ apiKey });
+  const response = await client.models.generateContent({
+    model: GEMINI_MODEL,
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
@@ -134,7 +168,97 @@ const callGemini = async (prompt, responseSchema) => {
   return JSON.parse(responseText);
 };
 
-export const generateRecipe = async ({ dishName, cuisine, dietaryPreference, servings, exclusions, language }) => {
+const callGroq = async (prompt, apiKey) => {
+  const response = await fetch(GROQ_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    const error = new Error(`Groq API error (${response.status}): ${errorBody}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw internalServer(MESSAGES.RECIPE.AI_EMPTY_RESPONSE, ERROR_CODES.RECIPE_AI_EMPTY_RESPONSE);
+  }
+
+  return JSON.parse(content);
+};
+
+const callProvider = async ({ provider, apiKey }, prompt, responseSchema, groqShapeInstructions) => {
+  if (provider === 'groq') {
+    return callGroq(`${prompt}\n${groqShapeInstructions}`, apiKey);
+  }
+  return callGemini(prompt, responseSchema, apiKey);
+};
+
+/** Cheap round-trip used by the settings page to verify a key before it's saved. */
+export const verifyApiKey = async (provider, apiKey) => {
+  try {
+    if (provider === 'groq') {
+      const response = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [{ role: 'user', content: 'Reply with the single word: OK' }],
+          max_tokens: 5,
+        }),
+      });
+      return response.ok;
+    }
+
+    const client = new GoogleGenAI({ apiKey });
+    const response = await client.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: 'Reply with the single word: OK',
+    });
+    return Boolean(response.text);
+  } catch (error) {
+    return false;
+  }
+};
+
+/** Shared write-path for both generate/modify — never throws, runs from a `finally`. */
+const logAiCall = ({ aiContext, action, model, input, startedAt, outcome }) => {
+  recordAiInteraction({
+    requestId: getRequestId(),
+    userId: aiContext.userId,
+    action,
+    provider: aiContext.provider,
+    model,
+    usingPersonalKey: Boolean(aiContext.usingPersonalKey),
+    input,
+    success: outcome.success,
+    durationMs: Date.now() - startedAt,
+    errorReason: outcome.errorReason,
+    errorDetail: outcome.errorDetail,
+    rawResponseSnippet: outcome.rawResponseSnippet,
+  });
+};
+
+export const generateRecipe = async ({ dishName, cuisine, dietaryPreference, servings, exclusions, language }, aiContext) => {
+  const startedAt = Date.now();
+  const model = aiContext.provider === 'groq' ? GROQ_MODEL : GEMINI_MODEL;
+  // success = "the AI call itself came back usable", independent of whether the
+  // recipe was later rejected for being an invalid dish / diet mismatch — that
+  // business-logic rejection still lands in errorReason and gets its own entry
+  // in the error log (via recipe.service.js throwing badRequest).
+  const outcome = { success: false, errorReason: null, errorDetail: null, rawResponseSnippet: null };
+
   try {
     const languageName = LANGUAGE_NAMES[language];
     const prompt = `
@@ -152,23 +276,46 @@ You can include basic pantry items like salt, pepper, oil, water, and basic spic
 Number "instructions" sequentially starting at 1, and include a realistic "timeRequired" (e.g. "5 mins") for steps where it's meaningful.
 `;
 
-    const parsed = await callGemini(prompt, GENERATE_RESPONSE_SCHEMA);
+    const parsed = await callProvider(aiContext, prompt, GENERATE_RESPONSE_SCHEMA, JSON_SHAPE_INSTRUCTIONS);
+    outcome.rawResponseSnippet = JSON.stringify(parsed).slice(0, 4000);
 
     if (parsed.isValidDish && parsed.matchesDietaryPreference) {
       const { error } = recipeContentJoiSchema.validate(parsed);
       if (error) {
-        logError('Gemini response failed shape validation', error);
+        outcome.errorReason = 'shape_validation_failed';
+        outcome.errorDetail = error.message;
+        logError('AI response failed shape validation', error);
         throw internalServer(MESSAGES.RECIPE.AI_FAILED, ERROR_CODES.RECIPE_AI_FAILED);
       }
+    } else {
+      outcome.errorReason = !parsed.isValidDish ? 'invalid_dish' : 'diet_mismatch';
     }
 
+    outcome.success = true;
     return { ...parsed, cuisine, dietaryPreference, language };
   } catch (error) {
+    if (!outcome.errorReason) {
+      outcome.errorReason = isQuotaExceededError(error) ? 'quota_exceeded' : 'provider_error';
+    }
+    outcome.errorDetail = outcome.errorDetail || String(error.message || '').slice(0, 500);
     throwSanitizedAiError(error);
+  } finally {
+    logAiCall({
+      aiContext,
+      action: 'generate',
+      model,
+      input: { dishName, cuisine, dietaryPreference, servings, exclusions, language },
+      startedAt,
+      outcome,
+    });
   }
 };
 
-export const generateModifiedRecipe = async ({ originalRecipe, modificationText, targetLanguage }) => {
+export const generateModifiedRecipe = async ({ originalRecipe, modificationText, targetLanguage }, aiContext) => {
+  const startedAt = Date.now();
+  const model = aiContext.provider === 'groq' ? GROQ_MODEL : GEMINI_MODEL;
+  const outcome = { success: false, errorReason: null, errorDetail: null, rawResponseSnippet: null };
+
   try {
     const language = targetLanguage || originalRecipe.language;
     const languageName = LANGUAGE_NAMES[language];
@@ -198,16 +345,33 @@ Apply this change requested by the user: "${modificationText}"
 Keep everything else the same unless the change requires updating it. Write the recipe in ${languageName}.
 `;
 
-    const parsed = await callGemini(prompt, MODIFY_RESPONSE_SCHEMA);
+    const parsed = await callProvider(aiContext, prompt, MODIFY_RESPONSE_SCHEMA, JSON_SHAPE_INSTRUCTIONS_MODIFY);
+    outcome.rawResponseSnippet = JSON.stringify(parsed).slice(0, 4000);
 
     const { error } = recipeContentJoiSchema.validate(parsed);
     if (error) {
-      logError('Gemini response failed shape validation', error);
+      outcome.errorReason = 'shape_validation_failed';
+      outcome.errorDetail = error.message;
+      logError('AI response failed shape validation', error);
       throw internalServer(MESSAGES.RECIPE.AI_FAILED, ERROR_CODES.RECIPE_AI_FAILED);
     }
 
+    outcome.success = true;
     return { ...parsed, cuisine: originalRecipe.cuisine, dietaryPreference: originalRecipe.dietaryPreference, language };
   } catch (error) {
+    if (!outcome.errorReason) {
+      outcome.errorReason = isQuotaExceededError(error) ? 'quota_exceeded' : 'provider_error';
+    }
+    outcome.errorDetail = outcome.errorDetail || String(error.message || '').slice(0, 500);
     throwSanitizedAiError(error);
+  } finally {
+    logAiCall({
+      aiContext,
+      action: 'modify',
+      model,
+      input: { modificationText: modificationText || null, targetLanguage: targetLanguage || null, sourceRecipeId: originalRecipe._id },
+      startedAt,
+      outcome,
+    });
   }
 };

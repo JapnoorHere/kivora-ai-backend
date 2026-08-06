@@ -7,7 +7,10 @@ const envSchema = Joi.object({
   PORT: Joi.number().default(5000),
   NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
   MONGO_URI: Joi.string().required().description('MongoDB connection URI'),
-  GEMINI_API_KEY: Joi.string().required().description('Google Gemini API key'),
+  GEMINI_API_KEY: Joi.string().required().description('Google Gemini API key — used as the free-tier fallback for users without their own key'),
+  GROQ_API_KEY: Joi.string().allow('').optional().description('Groq API key — optional system fallback'),
+  ENCRYPTION_KEY: Joi.string().min(16).required().description('Symmetric secret used to encrypt user-supplied AI provider API keys at rest'),
+  FREE_DAILY_LIMIT: Joi.number().integer().min(0).default(5).description('Recipe generations per day for users without their own API key'),
   JWT_SECRET: Joi.string().required().description('JWT signing secret key'),
   JWT_EXPIRES_IN: Joi.string().default('1d').description('JWT token lifetime'),
   ALLOWED_ORIGINS: Joi.string().default('http://localhost:4200,http://127.0.0.1:4200').description('Comma-separated list of allowed CORS origins'),
@@ -25,9 +28,14 @@ export const config = {
   db: {
     uri: envVars.MONGO_URI,
   },
-  gemini: {
-    apiKey: envVars.GEMINI_API_KEY,
+  ai: {
+    geminiApiKey: envVars.GEMINI_API_KEY,
+    groqApiKey: envVars.GROQ_API_KEY || null,
   },
+  security: {
+    encryptionKey: envVars.ENCRYPTION_KEY,
+  },
+  freeDailyLimit: envVars.FREE_DAILY_LIMIT,
   jwt: {
     secret: envVars.JWT_SECRET,
     expiresIn: envVars.JWT_EXPIRES_IN,

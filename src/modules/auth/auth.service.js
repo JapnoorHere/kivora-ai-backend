@@ -15,7 +15,7 @@ export const signupUser = async ({ name, email, password }) => {
   const token = signToken({ id: user._id });
 
   return {
-    user: { id: user._id, name: user.name, email: user.email },
+    user: { id: user._id, name: user.name, email: user.email, onboardingCompleted: user.preferences?.onboardingCompleted || false },
     token,
   };
 };
@@ -35,7 +35,7 @@ export const loginUser = async ({ email, password }) => {
   const token = signToken({ id: user._id });
 
   return {
-    user: { id: user._id, name: user.name, email: user.email },
+    user: { id: user._id, name: user.name, email: user.email, onboardingCompleted: user.preferences?.onboardingCompleted || false },
     token,
   };
 };
