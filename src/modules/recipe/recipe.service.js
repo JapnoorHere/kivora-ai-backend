@@ -1,5 +1,5 @@
 import { generateRecipe, generateModifiedRecipe } from '../ai/ai.service.js';
-import { resolveAiContext } from '../settings/settings.service.js';
+import { resolveAiContext, consumeFreeQuota } from '../settings/settings.service.js';
 import { Recipe } from './recipe.model.js';
 import { badRequest, notFound } from '../../errors/index.js';
 import { MESSAGES, ERROR_CODES } from '../../constants/index.js';
@@ -29,14 +29,71 @@ export const createAILedRecipe = async (params, userId) => {
   }
 
   const recipe = await Recipe.create({ ...recipeFields, createdBy: userId });
+
+  // Count this against the free tier only now that a recipe genuinely exists.
+  // BYOK users are unlimited and skip it.
+  if (!aiContext.usingPersonalKey) {
+    await consumeFreeQuota(userId);
+  }
+
   return serialize(recipe.toObject());
 };
 
-export const fetchAllRecipes = async (userId) => {
-  const recipes = await Recipe.find({ createdBy: userId })
-    .sort({ createdAt: -1 })
-    .lean();
-  return serializeMany(recipes);
+export const fetchAllRecipes = async (userId, { page = 1, limit = 20 } = {}) => {
+  const filter = { createdBy: userId };
+  const [recipes, total] = await Promise.all([
+    Recipe.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    Recipe.countDocuments(filter),
+  ]);
+
+  return {
+    items: serializeMany(recipes),
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
+};
+
+export const getRecipeStats = async (userId) => {
+  const [result] = await Recipe.aggregate([
+    { $match: { createdBy: userId } },
+    {
+      $group: {
+        _id: null,
+        totalRecipes: { $sum: 1 },
+        totalMinutes: { $sum: { $add: ['$prepTime', '$cookTime'] } },
+        cuisines: { $addToSet: '$cuisine' },
+      },
+    },
+  ]);
+
+  if (!result) {
+    return { totalRecipes: 0, totalMinutes: 0, distinctCuisines: 0 };
+  }
+
+  return {
+    totalRecipes: result.totalRecipes,
+    totalMinutes: result.totalMinutes || 0,
+    distinctCuisines: result.cuisines.filter(Boolean).length,
+  };
+};
+
+export const deleteRecipe = async (id, userId) => {
+  const deleted = await Recipe.findOneAndDelete({ _id: id, createdBy: userId }).lean();
+  if (!deleted) {
+    throw notFound(MESSAGES.RECIPE.NOT_FOUND(id), ERROR_CODES.RECIPE_NOT_FOUND);
+  }
+  return { id };
+};
+
+export const clearRecipes = async (userId) => {
+  const { deletedCount } = await Recipe.deleteMany({ createdBy: userId });
+  return { deletedCount: deletedCount || 0 };
 };
 
 export const fetchRecipeById = async (id, userId) => {
@@ -64,5 +121,10 @@ export const modifyRecipe = async (id, { modificationText, targetLanguage }, use
     createdBy: userId,
     sourceRecipeId: originalRecipe._id,
   });
+
+  if (!aiContext.usingPersonalKey) {
+    await consumeFreeQuota(userId);
+  }
+
   return serialize(recipe.toObject());
 };

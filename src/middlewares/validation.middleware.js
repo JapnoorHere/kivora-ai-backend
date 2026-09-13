@@ -16,7 +16,13 @@ export const validate = (schema, source = 'body') => {
       return next(badRequest(MESSAGES.APP.VALIDATION_FAILED, errors, ERROR_CODES.VALIDATION_FAILED));
     }
 
-    req[source] = value;
+    if (source === 'query') {
+      // Express 5 makes req.query a getter — assigning to it throws. Hand the
+      // validated/coerced value to the controller on req.validatedQuery instead.
+      req.validatedQuery = value;
+    } else {
+      req[source] = value;
+    }
     next();
   };
 };

@@ -102,7 +102,11 @@ export const setPreferredProvider = async (userId, provider) => {
  * Resolves which AI provider + API key a recipe request should use.
  * BYOK (user has their own key for their preferred provider) is unlimited.
  * Otherwise falls back to whichever system key is actually configured — Gemini
- * first, then Groq — and enforces the free daily quota.
+ * first, then Groq — and checks the free daily quota.
+ *
+ * The quota is only *checked* here, never spent: consumeFreeQuota() records the
+ * attempt after a recipe has actually been generated and saved, so a provider
+ * error or a rejected dish never costs a free-tier user one of their credits.
  */
 export const resolveAiContext = async (userId) => {
   const user = await User.findById(userId).select(KEY_FIELDS);
@@ -114,7 +118,7 @@ export const resolveAiContext = async (userId) => {
     return { provider, apiKey: personalKey, userId, usingPersonalKey: true };
   }
 
-  await enforceFreeQuota(user);
+  assertFreeQuotaAvailable(user);
 
   const systemContext = resolveSystemContext();
   if (!systemContext) {
@@ -127,16 +131,28 @@ export const resolveAiContext = async (userId) => {
   return { ...systemContext, userId, usingPersonalKey: false };
 };
 
-const enforceFreeQuota = async (user) => {
+// Check only — never writes. Throws once today's free allowance is spent.
+const assertFreeQuotaAvailable = (user) => {
+  const usedToday = user.dailyUsage?.date === todayKey() ? user.dailyUsage.count : 0;
+  if (usedToday >= config.freeDailyLimit) {
+    throw tooManyRequests(
+      MESSAGES.RECIPE.FREE_LIMIT_REACHED(config.freeDailyLimit),
+      ERROR_CODES.RECIPE_FREE_LIMIT_REACHED,
+    );
+  }
+};
+
+/**
+ * Records one successful free-tier generation against today's allowance. Called
+ * only after a recipe has been generated and saved. The stale-day reset and the
+ * increment are separate atomic updates; the worst a midnight-boundary race can
+ * do is miscount by one, which is acceptable for this meter.
+ */
+export const consumeFreeQuota = async (userId) => {
   const today = todayKey();
-  if (user.dailyUsage?.date !== today) {
-    user.dailyUsage = { count: 0, date: today };
-  }
-
-  if (user.dailyUsage.count >= config.freeDailyLimit) {
-    throw tooManyRequests(MESSAGES.RECIPE.FREE_LIMIT_REACHED(config.freeDailyLimit), ERROR_CODES.RECIPE_FREE_LIMIT_REACHED);
-  }
-
-  user.dailyUsage.count += 1;
-  await user.save();
+  await User.updateOne(
+    { _id: userId, 'dailyUsage.date': { $ne: today } },
+    { $set: { 'dailyUsage.date': today, 'dailyUsage.count': 0 } },
+  );
+  await User.updateOne({ _id: userId }, { $inc: { 'dailyUsage.count': 1 } });
 };

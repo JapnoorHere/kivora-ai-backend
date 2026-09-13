@@ -14,6 +14,7 @@ export const ERROR_CODES = {
   RECIPE_NOT_FOUND: 'RECIPE_NOT_FOUND',
   RECIPE_AI_EMPTY_RESPONSE: 'RECIPE_AI_EMPTY_RESPONSE',
   RECIPE_AI_FAILED: 'RECIPE_AI_FAILED',
+  RECIPE_AI_TIMEOUT: 'RECIPE_AI_TIMEOUT',
   RECIPE_AI_QUOTA_EXCEEDED: 'RECIPE_AI_QUOTA_EXCEEDED',
   RECIPE_INVALID_DISH: 'RECIPE_INVALID_DISH',
   RECIPE_DIET_MISMATCH: 'RECIPE_DIET_MISMATCH',
@@ -44,12 +45,16 @@ export const MESSAGES = {
     MODIFIED: 'Recipe updated and saved successfully',
     FETCHED_ALL: 'Recipes retrieved successfully',
     FETCHED_ONE: 'Recipe retrieved successfully',
+    STATS_FETCHED: 'Recipe stats retrieved successfully',
+    DELETED: 'Recipe deleted',
+    CLEARED: 'All recipes cleared',
     NOT_FOUND: (id) => `Recipe with ID "${id}" was not found`,
     // Kept generic on purpose — never interpolate the raw upstream (Gemini) error
     // message here, it can leak internal details straight to the user's toast.
     // Full details always go to logError() server-side instead.
     AI_EMPTY_RESPONSE: 'We couldn\'t generate your recipe right now. Please try again in a moment.',
     AI_FAILED: 'We couldn\'t generate your recipe right now. Please try again in a moment.',
+    AI_TIMEOUT: 'That took longer than expected. Please try again.',
     AI_QUOTA_EXCEEDED: 'Our recipe engine is temporarily at capacity. Please try again shortly.',
     INVALID_DISH: 'That doesn\'t look like a real dish. Try a specific recipe name, like "Butter Chicken" or "Margherita Pizza".',
     DIET_MISMATCH: 'The AI could not generate a recipe that honors your dietary preference. Please try again.',

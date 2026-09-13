@@ -11,10 +11,21 @@ const GEMINI_MODEL = 'gemini-2.0-flash';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
+// A hung upstream call otherwise holds the HTTP connection (and, on Gemini, the
+// billing meter) open indefinitely. Verify is a one-token round trip, so it gets
+// a much shorter leash.
+const AI_TIMEOUT_MS = 60_000;
+const VERIFY_TIMEOUT_MS = 15_000;
+
 const isQuotaExceededError = (error) => {
   if (error?.status === 429) return true;
   const text = String(error?.message || '');
   return text.includes('RESOURCE_EXHAUSTED') || text.includes('"code":429') || /quota/i.test(text);
+};
+
+const isTimeoutError = (error) => {
+  if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return true;
+  return /timed?\s*out|timeout|aborted|ETIMEDOUT|deadline/i.test(String(error?.message || ''));
 };
 
 // Never surface `error.message` to the client here — it's the raw upstream (Gemini/Groq)
@@ -22,6 +33,9 @@ const isQuotaExceededError = (error) => {
 const throwSanitizedAiError = (error) => {
   if (error.isOperational) throw error;
   logError('AI provider error', error);
+  if (isTimeoutError(error)) {
+    throw internalServer(MESSAGES.RECIPE.AI_TIMEOUT, ERROR_CODES.RECIPE_AI_TIMEOUT);
+  }
   if (isQuotaExceededError(error)) {
     throw tooManyRequests(MESSAGES.RECIPE.AI_QUOTA_EXCEEDED, ERROR_CODES.RECIPE_AI_QUOTA_EXCEEDED);
   }
@@ -64,8 +78,10 @@ const RECIPE_CONTENT_PROPERTIES = {
       type: 'OBJECT',
       properties: {
         stepNumber: { type: 'INTEGER' },
+        title: { type: 'STRING' },
         instruction: { type: 'STRING' },
         timeRequired: { type: 'STRING' },
+        ingredientsUsed: { type: 'ARRAY', items: { type: 'STRING' } },
       },
       required: ['stepNumber', 'instruction'],
     },
@@ -77,6 +93,13 @@ const RECIPE_CONTENT_PROPERTIES = {
       protein: { type: 'STRING' },
       carbs: { type: 'STRING' },
       fat: { type: 'STRING' },
+    },
+  },
+  prepNotes: {
+    type: 'OBJECT',
+    properties: {
+      beforeYouStart: { type: 'ARRAY', items: { type: 'STRING' } },
+      proTips: { type: 'ARRAY', items: { type: 'STRING' } },
     },
   },
 };
@@ -108,8 +131,9 @@ const RECIPE_CONTENT_SHAPE = `  "title": string,
   "servings": number,
   "difficulty": "Easy" | "Medium" | "Hard",
   "ingredients": [{ "name": string, "amount": string }],
-  "instructions": [{ "stepNumber": number, "instruction": string, "timeRequired": string }],
-  "nutritionalInfo": { "calories": number, "protein": string, "carbs": string, "fat": string }`;
+  "instructions": [{ "stepNumber": number, "title": string, "instruction": string, "timeRequired": string, "ingredientsUsed": string[] }],
+  "nutritionalInfo": { "calories": number, "protein": string, "carbs": string, "fat": string },
+  "prepNotes": { "beforeYouStart": string[], "proTips": string[] }`;
 
 const JSON_SHAPE_INSTRUCTIONS = `
 Respond with ONLY a single valid JSON object (no markdown fences, no extra text) with exactly this shape:
@@ -138,14 +162,20 @@ const recipeContentJoiSchema = Joi.object({
   ingredients: Joi.array().items(Joi.object({ name: Joi.string().required(), amount: Joi.string().required() })).min(1).required(),
   instructions: Joi.array().items(Joi.object({
     stepNumber: Joi.number().required(),
+    title: Joi.string().max(80).optional(),
     instruction: Joi.string().required(),
     timeRequired: Joi.string().optional(),
+    ingredientsUsed: Joi.array().items(Joi.string()).optional(),
   })).min(1).required(),
   nutritionalInfo: Joi.object({
     calories: Joi.number().optional(),
     protein: Joi.string().optional(),
     carbs: Joi.string().optional(),
     fat: Joi.string().optional(),
+  }).optional(),
+  prepNotes: Joi.object({
+    beforeYouStart: Joi.array().items(Joi.string()).optional(),
+    proTips: Joi.array().items(Joi.string()).optional(),
   }).optional(),
 }).unknown(true);
 
@@ -157,6 +187,7 @@ const callGemini = async (prompt, responseSchema, apiKey) => {
     config: {
       responseMimeType: 'application/json',
       responseSchema,
+      httpOptions: { timeout: AI_TIMEOUT_MS },
     },
   });
 
@@ -180,6 +211,7 @@ const callGroq = async (prompt, apiKey) => {
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
     }),
+    signal: AbortSignal.timeout(AI_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -217,6 +249,7 @@ export const verifyApiKey = async (provider, apiKey) => {
           messages: [{ role: 'user', content: 'Reply with the single word: OK' }],
           max_tokens: 5,
         }),
+        signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
       });
       return response.ok;
     }
@@ -225,6 +258,7 @@ export const verifyApiKey = async (provider, apiKey) => {
     const response = await client.models.generateContent({
       model: GEMINI_MODEL,
       contents: 'Reply with the single word: OK',
+      config: { httpOptions: { timeout: VERIFY_TIMEOUT_MS } },
     });
     return Boolean(response.text);
   } catch (error) {
@@ -274,6 +308,9 @@ Set "matchesDietaryPreference" to false only if you were not able to honor the d
 
 You can include basic pantry items like salt, pepper, oil, water, and basic spices even if not explicitly mentioned.
 Number "instructions" sequentially starting at 1, and include a realistic "timeRequired" (e.g. "5 mins") for steps where it's meaningful.
+Give every instruction a short "title" — 3 to 6 words, imperative, naming the action (e.g. "Sear the chicken", "Simmer the sauce"). It is a label for the step, not a restatement of it.
+For each instruction, set "ingredientsUsed" to the exact "name" values from the ingredients array that the step actually uses (an empty array if none).
+Fill "prepNotes.beforeYouStart" with 2 to 4 short setup/prep tips and "prepNotes.proTips" with 2 to 4 technique tips, written in ${languageName}.
 `;
 
     const parsed = await callProvider(aiContext, prompt, GENERATE_RESPONSE_SCHEMA, JSON_SHAPE_INSTRUCTIONS);
@@ -295,7 +332,11 @@ Number "instructions" sequentially starting at 1, and include a realistic "timeR
     return { ...parsed, cuisine, dietaryPreference, language };
   } catch (error) {
     if (!outcome.errorReason) {
-      outcome.errorReason = isQuotaExceededError(error) ? 'quota_exceeded' : 'provider_error';
+      outcome.errorReason = isTimeoutError(error)
+        ? 'timeout'
+        : isQuotaExceededError(error)
+          ? 'quota_exceeded'
+          : 'provider_error';
     }
     outcome.errorDetail = outcome.errorDetail || String(error.message || '').slice(0, 500);
     throwSanitizedAiError(error);
@@ -333,7 +374,7 @@ export const generateModifiedRecipe = async ({ originalRecipe, modificationText,
 
     const prompt = targetLanguage
       ? `
-Translate the following recipe faithfully into ${languageName}. Preserve quantities, step order, and structure exactly — this is a translation, not a new recipe.
+Translate the following recipe faithfully into ${languageName}. Preserve quantities, step order, each step's short "title" and "ingredientsUsed", the "prepNotes", and structure exactly — this is a translation, not a new recipe.
 
 Recipe (JSON): ${originalContent}
 `
@@ -360,7 +401,11 @@ Keep everything else the same unless the change requires updating it. Write the 
     return { ...parsed, cuisine: originalRecipe.cuisine, dietaryPreference: originalRecipe.dietaryPreference, language };
   } catch (error) {
     if (!outcome.errorReason) {
-      outcome.errorReason = isQuotaExceededError(error) ? 'quota_exceeded' : 'provider_error';
+      outcome.errorReason = isTimeoutError(error)
+        ? 'timeout'
+        : isQuotaExceededError(error)
+          ? 'quota_exceeded'
+          : 'provider_error';
     }
     outcome.errorDetail = outcome.errorDetail || String(error.message || '').slice(0, 500);
     throwSanitizedAiError(error);

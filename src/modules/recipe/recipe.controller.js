@@ -23,11 +23,27 @@ export const handleModifyRecipe = asyncHandler(async (req, res) => {
 });
 
 export const handleGetAllRecipes = asyncHandler(async (req, res) => {
-  const recipes = await recipeService.fetchAllRecipes(req.user._id);
-  return sendSuccess(res, MESSAGES.RECIPE.FETCHED_ALL, recipes);
+  const { page, limit } = req.validatedQuery ?? {};
+  const result = await recipeService.fetchAllRecipes(req.user._id, { page, limit });
+  return sendSuccess(res, MESSAGES.RECIPE.FETCHED_ALL, result);
+});
+
+export const handleGetRecipeStats = asyncHandler(async (req, res) => {
+  const stats = await recipeService.getRecipeStats(req.user._id);
+  return sendSuccess(res, MESSAGES.RECIPE.STATS_FETCHED, stats);
 });
 
 export const handleGetRecipeById = asyncHandler(async (req, res) => {
   const recipe = await recipeService.fetchRecipeById(req.params.id, req.user._id);
   return sendSuccess(res, MESSAGES.RECIPE.FETCHED_ONE, recipe);
+});
+
+export const handleDeleteRecipe = asyncHandler(async (req, res) => {
+  const result = await recipeService.deleteRecipe(req.params.id, req.user._id);
+  return sendSuccess(res, MESSAGES.RECIPE.DELETED, result);
+});
+
+export const handleClearRecipes = asyncHandler(async (req, res) => {
+  const result = await recipeService.clearRecipes(req.user._id);
+  return sendSuccess(res, MESSAGES.RECIPE.CLEARED, result);
 });
