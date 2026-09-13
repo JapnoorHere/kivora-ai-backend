@@ -8,7 +8,9 @@ import { recordAiInteraction } from '../logs/logs.service.js';
 import { getRequestId } from '../../utils/request-context.js';
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+// llama-3.3-70b-versatile was retired by Groq (404 model_not_found) — this is
+// their current production general-purpose model.
+const GROQ_MODEL = 'openai/gpt-oss-120b';
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // A hung upstream call otherwise holds the HTTP connection (and, on Gemini, the
@@ -61,6 +63,9 @@ const RECIPE_CONTENT_PROPERTIES = {
   cookTime: { type: 'INTEGER' },
   servings: { type: 'INTEGER' },
   difficulty: { type: 'STRING', enum: ['Easy', 'Medium', 'Hard'] },
+  // Short generic English term for a stock-photo search of the finished dish —
+  // always English so a Pexels lookup works regardless of `language` below.
+  dishSearchTermEn: { type: 'STRING' },
   ingredients: {
     type: 'ARRAY',
     items: {
@@ -68,6 +73,8 @@ const RECIPE_CONTENT_PROPERTIES = {
       properties: {
         name: { type: 'STRING' },
         amount: { type: 'STRING' },
+        // Same idea as dishSearchTermEn, per ingredient.
+        searchTermEn: { type: 'STRING' },
       },
       required: ['name', 'amount'],
     },
@@ -130,7 +137,8 @@ const RECIPE_CONTENT_SHAPE = `  "title": string,
   "cookTime": number (minutes),
   "servings": number,
   "difficulty": "Easy" | "Medium" | "Hard",
-  "ingredients": [{ "name": string, "amount": string }],
+  "dishSearchTermEn": string,
+  "ingredients": [{ "name": string, "amount": string, "searchTermEn": string }],
   "instructions": [{ "stepNumber": number, "title": string, "instruction": string, "timeRequired": string, "ingredientsUsed": string[] }],
   "nutritionalInfo": { "calories": number, "protein": string, "carbs": string, "fat": string },
   "prepNotes": { "beforeYouStart": string[], "proTips": string[] }`;
@@ -159,7 +167,12 @@ const recipeContentJoiSchema = Joi.object({
   cookTime: Joi.number().required(),
   servings: Joi.number().required(),
   difficulty: Joi.string().valid('Easy', 'Medium', 'Hard').required(),
-  ingredients: Joi.array().items(Joi.object({ name: Joi.string().required(), amount: Joi.string().required() })).min(1).required(),
+  dishSearchTermEn: Joi.string().max(80).optional(),
+  ingredients: Joi.array().items(Joi.object({
+    name: Joi.string().required(),
+    amount: Joi.string().required(),
+    searchTermEn: Joi.string().max(60).optional(),
+  })).min(1).required(),
   instructions: Joi.array().items(Joi.object({
     stepNumber: Joi.number().required(),
     title: Joi.string().max(80).optional(),
@@ -311,6 +324,8 @@ Number "instructions" sequentially starting at 1, and include a realistic "timeR
 Give every instruction a short "title" — 3 to 6 words, imperative, naming the action (e.g. "Sear the chicken", "Simmer the sauce"). It is a label for the step, not a restatement of it.
 For each instruction, set "ingredientsUsed" to the exact "name" values from the ingredients array that the step actually uses (an empty array if none).
 Fill "prepNotes.beforeYouStart" with 2 to 4 short setup/prep tips and "prepNotes.proTips" with 2 to 4 technique tips, written in ${languageName}.
+Set "dishSearchTermEn" to a short, generic ENGLISH phrase (2-4 words) that would find a good stock photo of the finished dish (e.g. "butter chicken", "chocolate lava cake") — English always, regardless of ${languageName}.
+For each ingredient, set "searchTermEn" to a short, generic ENGLISH term for it (e.g. "onion", "paneer cubes", "cumin seeds") — English always, even when "name" itself is written in ${languageName}. Omit brand names, quantities, and prep instructions from it.
 `;
 
     const parsed = await callProvider(aiContext, prompt, GENERATE_RESPONSE_SCHEMA, JSON_SHAPE_INSTRUCTIONS);
@@ -329,7 +344,7 @@ Fill "prepNotes.beforeYouStart" with 2 to 4 short setup/prep tips and "prepNotes
     }
 
     outcome.success = true;
-    return { ...parsed, cuisine, dietaryPreference, language };
+    return { ...parsed, cuisine, dietaryPreference, language, exclusions: exclusions || null };
   } catch (error) {
     if (!outcome.errorReason) {
       outcome.errorReason = isTimeoutError(error)
@@ -367,14 +382,18 @@ export const generateModifiedRecipe = async ({ originalRecipe, modificationText,
       cookTime: originalRecipe.cookTime,
       servings: originalRecipe.servings,
       difficulty: originalRecipe.difficulty,
-      ingredients: originalRecipe.ingredients,
+      dishSearchTermEn: originalRecipe.dishSearchTermEn,
+      // Strip `image`/`imageCredit` — Pexels URLs and attribution are irrelevant to
+      // the model and just add noise/tokens; `searchTermEn` stays so an unchanged
+      // ingredient can echo the same term back (keeping the same cached photo).
+      ingredients: originalRecipe.ingredients.map(({ name, amount, searchTermEn }) => ({ name, amount, searchTermEn })),
       instructions: originalRecipe.instructions,
       nutritionalInfo: originalRecipe.nutritionalInfo,
     });
 
     const prompt = targetLanguage
       ? `
-Translate the following recipe faithfully into ${languageName}. Preserve quantities, step order, each step's short "title" and "ingredientsUsed", the "prepNotes", and structure exactly — this is a translation, not a new recipe.
+Translate the following recipe faithfully into ${languageName}. Preserve quantities, step order, each step's short "title" and "ingredientsUsed", the "prepNotes", the "dishSearchTermEn" and each ingredient's "searchTermEn" exactly as given (never translate these — they stay English), and structure exactly — this is a translation, not a new recipe.
 
 Recipe (JSON): ${originalContent}
 `
@@ -384,6 +403,8 @@ Here is an existing recipe (JSON): ${originalContent}
 Apply this change requested by the user: "${modificationText}"
 
 Keep everything else the same unless the change requires updating it. Write the recipe in ${languageName}.
+
+For any ingredient that didn't change, echo its "searchTermEn" back unchanged. For a new or altered ingredient, set a fresh "searchTermEn" (see rules above). Only update "dishSearchTermEn" if the dish itself changed.
 `;
 
     const parsed = await callProvider(aiContext, prompt, MODIFY_RESPONSE_SCHEMA, JSON_SHAPE_INSTRUCTIONS_MODIFY);
@@ -397,8 +418,28 @@ Keep everything else the same unless the change requires updating it. Write the 
       throw internalServer(MESSAGES.RECIPE.AI_FAILED, ERROR_CODES.RECIPE_AI_FAILED);
     }
 
+    if (targetLanguage) {
+      // A translation doesn't change the dish or its ingredients, so the English
+      // terms used for the photo search must carry over exactly rather than be
+      // regenerated (or silently dropped) by the translation pass — matching by
+      // index is safe here specifically because translate is guaranteed to
+      // return the same ingredients in the same order, just relabeled.
+      parsed.dishSearchTermEn = originalRecipe.dishSearchTermEn || parsed.dishSearchTermEn || null;
+      parsed.ingredients = parsed.ingredients.map((ingredient, index) => ({
+        ...ingredient,
+        searchTermEn: originalRecipe.ingredients?.[index]?.searchTermEn || ingredient.searchTermEn || null,
+      }));
+    }
+
     outcome.success = true;
-    return { ...parsed, cuisine: originalRecipe.cuisine, dietaryPreference: originalRecipe.dietaryPreference, language };
+    return {
+      ...parsed,
+      cuisine: originalRecipe.cuisine,
+      dietaryPreference: originalRecipe.dietaryPreference,
+      language,
+      // Carried forward — a modify/translate pass never re-asks for restrictions.
+      exclusions: originalRecipe.exclusions ?? null,
+    };
   } catch (error) {
     if (!outcome.errorReason) {
       outcome.errorReason = isTimeoutError(error)

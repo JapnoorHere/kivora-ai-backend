@@ -1,5 +1,6 @@
 import { generateRecipe, generateModifiedRecipe } from '../ai/ai.service.js';
 import { resolveAiContext, consumeFreeQuota } from '../settings/settings.service.js';
+import { resolveRecipePhotos } from '../media/recipe-photos.service.js';
 import { Recipe } from './recipe.model.js';
 import { badRequest, notFound } from '../../errors/index.js';
 import { MESSAGES, ERROR_CODES } from '../../constants/index.js';
@@ -28,7 +29,8 @@ export const createAILedRecipe = async (params, userId) => {
     throw badRequest(MESSAGES.RECIPE.DIET_MISMATCH, null, ERROR_CODES.RECIPE_DIET_MISMATCH);
   }
 
-  const recipe = await Recipe.create({ ...recipeFields, createdBy: userId });
+  const { photo, ingredients } = await resolveRecipePhotos(recipeFields);
+  const recipe = await Recipe.create({ ...recipeFields, ingredients, photo, createdBy: userId });
 
   // Count this against the free tier only now that a recipe genuinely exists.
   // BYOK users are unlimited and skip it.
@@ -116,8 +118,11 @@ export const modifyRecipe = async (id, { modificationText, targetLanguage }, use
 
   const aiContext = await resolveAiContext(userId);
   const generatedData = await generateModifiedRecipe({ originalRecipe, modificationText, targetLanguage }, aiContext);
+  const { photo, ingredients } = await resolveRecipePhotos(generatedData);
   const recipe = await Recipe.create({
     ...generatedData,
+    ingredients,
+    photo,
     createdBy: userId,
     sourceRecipeId: originalRecipe._id,
   });

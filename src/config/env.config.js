@@ -9,6 +9,7 @@ const envSchema = Joi.object({
   MONGO_URI: Joi.string().required().description('MongoDB connection URI'),
   GEMINI_API_KEY: Joi.string().required().description('Google Gemini API key — used as the free-tier fallback for users without their own key'),
   GROQ_API_KEY: Joi.string().allow('').optional().description('Groq API key — optional system fallback'),
+  PEXELS_API_KEY: Joi.string().allow('').optional().description('Pexels API key — optional; powers ingredient/recipe photos, no-ops if unset'),
   ENCRYPTION_KEY: Joi.string().min(16).required().description('Symmetric secret used to encrypt user-supplied AI provider API keys at rest'),
   FREE_DAILY_LIMIT: Joi.number().integer().min(0).default(5).description('Recipe generations per day for users without their own API key'),
   JWT_SECRET: Joi.string().min(32).required().description('JWT signing secret key'),
@@ -31,6 +32,9 @@ export const config = {
   ai: {
     geminiApiKey: envVars.GEMINI_API_KEY,
     groqApiKey: envVars.GROQ_API_KEY || null,
+  },
+  pexels: {
+    apiKey: envVars.PEXELS_API_KEY || null,
   },
   security: {
     encryptionKey: envVars.ENCRYPTION_KEY,
